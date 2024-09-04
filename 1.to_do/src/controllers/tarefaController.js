@@ -131,7 +131,8 @@ export const updateTarefa = async (request, response) => {
     response.status(400).json({
       message: "Número de identificação está inválido",
       details: formatZodError(paramValidator.error)
-    })
+    });
+    return
   }
 
   const updateValidator = updateTarefaSchema.safeParse(request.body)
