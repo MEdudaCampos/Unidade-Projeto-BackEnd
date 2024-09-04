@@ -1,5 +1,7 @@
 import { request, response } from "express";
 import Tarefa from "../models/tarefaModel.js";
+import { z } from "zod";
+import formatZodError from "../helpers/zodError.js";
 
 // export const getAll = async (request, response) => {
 //   try {
@@ -10,8 +12,37 @@ import Tarefa from "../models/tarefaModel.js";
 //   }
 // };
 
-// tarefas?page=2&limit=10
+// validaçõs com ZOD
+const createShema = z.object({
+  tarefa: z
+    .string()
+    .min(3, { message: "A tarefa deve ter pelo menos 3 caracteres" })
+    .transform((txt) => txt.toLocaleLowerCase()),
+  descricao: z
+    .string()
+    .min(5, { message: "A descrição deve ter pelo menos 3 caracteres" }),
+});
 
+const getSchema = z.object({
+  id: z.string().uuid({ message: "Id da tarefa está iválido" }),
+});
+
+const buscarTarefaPorSistuacaoShwm = z.object({
+  situacao: z.enum(["pendente", "concluida"]),
+});
+
+const updateTarefaSchema = z.object({
+  tarefa: z
+    .string()
+    .min(3, { message: "A tarefa deve ter pelo menos 3 caracteres" })
+    .transforme((txt) => txt.toLocaleLowerCase()),
+  descricao: z
+    .string()
+    .min(3, { message: "A descrição deve ter pelo menos 5 caracteres" }),
+  situacao: z.nativeEnum(["pendente", "concluida"]),
+});
+
+// tarefas?page=2&limit=10
 export const getAll = async (request, response) => {
   const page = parseInt(request.query.page) || 1;
   const limit = parseInt(request.query.limit) || 10;
@@ -39,15 +70,23 @@ export const getAll = async (request, response) => {
     response.status(500).json({ message: "Erro ao buscar tarefas" });
   }
 };
+// cria tarefa
 export const create = async (request, response) => {
+  // implementar a validação
+
+  const bodyValidation = createShema.safeParse(request.body);
+  // console.log(bodyValidation)
+  if (bodyValidation.success) {
+    response
+      .status(404)
+      .json({
+        message: "Os dados recebidos do corpo da aplicação são inválidos",
+        detalhes: bodyValidation.error,
+      });
+    return;
+  }
   const { tarefa, descricao } = request.body;
   const status = "pendente";
-  if (!tarefa) {
-    response.status(404).json({ err: "A tarefa é obrigatória" });
-  }
-  if (!descricao) {
-    response.status(404).json({ err: "A descrição é obrigatória" });
-  }
   const novaTarefa = {
     tarefa,
     descricao,
@@ -62,23 +101,47 @@ export const create = async (request, response) => {
     response.status(500).json({ message: "Erro ao cadastrar tarefa" });
   }
 };
-
+// busca tarefa por id
 export const getTarefa = async (request, response) => {
+  const paramValidator = getSchema.safeParse(request.params);
+  if (!paramValidator.success) {
+    response.status(400).json({
+      message: "Número de identidicação está inválido",
+      detalhes: formatZodError(paramValidator.error),
+    });
+    return;
+  }
   const { id } = request.params;
   try {
     const tarefaId = await Tarefa.findOne({ where: { id } });
     if (Tarefa === null) {
-      response.status(404).json({ message: "Tarefa não encontrada" })
-      return
+      response.status(404).json({ message: "Tarefa não encontrada" });
+      return;
     }
 
     response.status(200).json(tarefaId);
   } catch (error) {
     response.status(500).json({ err: "Erro ao buscar tarefa por id" });
-    return
+    return;
   }
 };
 export const updateTarefa = async (request, response) => {
+  const paramValidator = getSchema.safeParse(request.params);
+  if(!paramValidator.success){
+    response.status(400).json({
+      message: "Número de identificação está inválido",
+      details: formatZodError(paramValidator.error)
+    })
+  }
+
+  const updateValidator = updateTarefaSchema.safeParse(request.body)
+  if(!updateValidator.success){
+    response.status(400).json({ 
+      message:"Dados para atualização estão incorretos",
+      details: formatZodError(updateValidator.error)
+    })
+  }
+
   const { id } = request.params;
   const { tarefa, descricao, status } = request.body;
 
@@ -99,17 +162,17 @@ export const updateTarefa = async (request, response) => {
   };
 
   try {
-
-
-    const [linhasAfetadas] = await Tarefa.update(tarefaAtualizada, { where: { id } });
+    const [linhasAfetadas] = await Tarefa.update(tarefaAtualizada, {
+      where: { id },
+    });
 
     if (linhasAfetadas <= 0) {
-      response.status(404).json({ message: "Tarefa não encontrada" })
+      response.status(404).json({ message: "Tarefa não encontrada" });
     }
 
-    response.status(200).json({ message: "Tarefa Atualizada" })
+    response.status(200).json({ message: "Tarefa Atualizada" });
   } catch (error) {
-    response.status(500).json({ message: "Errp ao atualizar tarefa" })
+    response.status(500).json({ message: "Erro ao atualizar tarefa" });
   }
 };
 
@@ -124,39 +187,38 @@ export const updateStatusTarefa = async (request, response) => {
     }
 
     if (tarefa.status === "pendente") {
-      await Tarefa.update({ status: "concluida" }, { where: { id } })
-
+      await Tarefa.update({ status: "concluida" }, { where: { id } });
     } else if (tarefa.status === "concluida") {
-      await Tarefa.update({ status: "pendente" }, { where: { id } })
+      await Tarefa.update({ status: "pendente" }, { where: { id } });
     }
 
-    const tarefaAtualizada = await Tarefa.findOne({ raw: true, where: { id } })
-    response.status(200).json(tarefaAtualizada)
+    // novaConsulta
+    const tarefaAtualizada = await Tarefa.findOne({ raw: true, where: { id } });
+    response.status(200).json(tarefaAtualizada);
+    // console.log(tarefa.status);
   } catch (error) {
-    console.log(error)
-    response.status(500).json({ err: "Erro ao atualizar tarefa" });
+    console.error(error);
+    response.status(500).json({ err: "Error ao atualizar tarefa" });
+  }
+};
+
+export const buscarTarefaPorSistuacao = async (request, response) => {
+  const { situacao } = request.params;
+
+  if (situacao !== "pendente" && situacao !== "concluida") {
+    response
+      .status(400)
+      .json({ message: "Situação inválida. Use 'pendente' ou 'concluida'" });
     return;
   }
-}
 
-export const getTarefaPorSituacao = async (request, response) => {
-  const { situacao } = request.params;
-  if (situacao !== "pendente" && situacao !== "concluido") {
-    response.status(400).json({
-      menssage: "Situação inválida. Use 'pendente' ou 'concluida'"
-    })
-    return
-  }
   try {
     const tarefas = await Tarefa.findAll({
       where: { status: situacao },
-      raw: true
+      raw: true,
     });
-
-    response.status(200).json(tarefas)
-  }catch(error){
-    console.log(error)
-    response.status(500).json({ err: "Erro ao Buscar Tarefa Por Situação" });
-    return;
+    response.status(200).json(tarefas);
+  } catch (error) {
+    response.status(500).json({ err: "Erro ao buscar tarefas " });
   }
-}
+};
